@@ -1,0 +1,29 @@
+//////////////////////////////////////////////////////////////
+/////							//////
+/////		       Project 3			//////
+/////		    Team: Acid Fire			//////
+/////	    Authors: George Richards, Eric Saupe	//////
+/////	     Austin Truong, Alan Mieu			//////
+/////							//////
+//////////////////////////////////////////////////////////////
+
+Compile using the command:
+	make
+
+Run using the command:
+    ./crawler web_url [-domain domain] [-threads num_of_threads] [-count top_word_count] [-miss top_miss_count]
+
+NOTE:
+    The -domain (domain), -threads (num_of_threads), -count (top_word_count), and -miss (top_miss_count)
+     options are not required, however when not included the program defaults to single threaded, domain defaults to web_url,
+    and outputs the top 500 words found and the top 100 missed words.
+    The web_url is required and must include a valid URL to begin the analysis.
+    The output of the file can be found in the directory which the program was ran under the name
+    of outHTML.html. This html document includes number of links found, number of websites visited,
+    top misspelled words, most used words, and (if it is an Amazon page) includes information about the products
+    found and the users who reviewed them. The documenments are separated by their titles as large captions,
+    the data is provided in neat HTML tables.
+    
+    Please specify a domain when running this program!
+
+    To stop this program at any time press CTRL+C.

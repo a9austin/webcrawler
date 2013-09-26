@@ -1,0 +1,207 @@
+/**
+ * Authors:  Austin Truong, George Richards, Alan Mieu, Eric Saupe
+ * Date:     February 13, 2012
+ * 
+ * Main.C
+ * 
+ * Function:
+ * Main function for the web crawler.
+ */
+#include <cctype>
+#include <pthread.h>
+#include <iomanip>
+#include <vector>
+#include <sstream>
+#include <fstream>
+#include <stdlib.h>
+#include <curl/curl.h>
+#include "Dictionary.h"
+#include "Word_Count.h"
+#include "Output.h"
+#include "Webpage.h"
+
+//function declarations
+bool StringToInt(int& t, const string& s);
+Webpage* parseHTML(string html);
+Webpage* getHTML(string website);
+size_t write_function(void *ptr, size_t size, size_t nmemb, void *userdata);
+
+int main (int argc, const char * argv[]) {
+  Dictionary dict;
+  string website;
+  string domain;
+  int threads;
+  int topCount;
+  int missCount;
+
+    //Example Usage:                
+    //./crawl cs.utah.edu 
+    //./crawl www.utah.edu -domain utah.edu
+    //./crawl www.utah.edu -domain utah.edu -threads 8
+    //./crawl www.utah.edu -domain utah.edu -threads 8 -count 500
+    //./crawl www.utah.edu -domain utah.edu -threads 8 -count 500 -miss 100
+  if (argc < 2) {
+    cout << "Usage: " << argv[0] << "web_address [-domain limited_domain] [-threads #_threads_used] [-count #_of_top_words] [-miss #_of_misspelled_words]" << endl;
+    exit(1);
+  }
+  //Website to be checked is the first argument
+  website = argv[1];
+  //For loop to check for the other arguments given, if any.
+  //Error checking could be added in case someone inputs a -input without
+  //another argument with it. 
+  //i.e. ./crawl cs.utah.edu -domain would throw an error because it doesn't
+  //have a domain.
+  bool hasThreads = false;
+  bool hasTopCount = false;
+  bool hasMissCount = false;
+  for(int i = 2; i < argc; i++) {
+    if(string(argv[i]).compare("-domain") == 0) {
+      domain = argv[i+1];
+      i++;
+      continue;
+    }
+    else if (string(argv[i]).compare("-threads") == 0) {
+      hasThreads = true;
+      StringToInt(threads, string(argv[i+1]));
+      i++;
+      continue;
+    }
+    else if (string(argv[i]).compare("-count") == 0) {
+      hasTopCount = true;
+      StringToInt(topCount, string(argv[i+1]));
+      i++;
+      continue;
+    }
+    else if (string(argv[i]).compare("-miss") == 0) {
+      hasMissCount = true;
+      StringToInt(missCount, string(argv[i+1]));
+      i++;
+      continue;
+    }
+  }
+
+  //Set default values if none are given.
+  if(!hasThreads) {
+    threads = 1;
+  } else {
+    if (threads > 8) {
+      threads = 8;
+    }
+  }
+  if(!hasTopCount) {
+    topCount = 500;
+  }
+  if(!hasMissCount) {
+    missCount = 500;
+  }
+
+  //Go through the links.
+  Webpage *current = getHTML(website);
+  cout << current->links.size() << endl;
+
+  return 0;
+}
+
+Webpage* parseHTML(string buffer)
+{
+  Webpage *newpage = new Webpage();
+
+  unsigned int found = html.find("href", 0);
+      
+  while(found != string::npos)
+    {
+      int beginfound = buffer.find("\"", found);
+      int endfound = buffer.find("\"", beginfound + 1);
+      string link = buffer.substr(beginfound, endfound);
+      newpage.insert(link, newpage->links);
+    }
+
+
+
+  return newpage;
+
+}
+
+Webpage* getHTML(string website)
+{
+  CURL *curl;
+  CURLcode res;
+ 
+  string buffer;
+ 
+  curl = curl_easy_init();
+  if(curl)
+    {
+      curl_easy_setopt(curl, CURLOPT_URL, website);
+      curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_function);
+      curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
+      
+      res = curl_easy_perform(curl);
+ 
+      if ( res )
+        {
+          printf("oops, res is %d\n", res);
+        }
+      
+      /* always cleanup */ 
+      curl_easy_cleanup(curl);
+    }
+ 
+  Webpage *current = parseHTML(buffer);
+
+  return current;
+}
+
+
+/**
+ *
+ * This function is called by the networking (libcurl) code to download
+ * handle each part of the web page as it comes in.
+ *
+ * Note: networking usually results in "chunks" arriving which
+ *       must be assembled into the whole
+ *
+ * Parameters:
+ *
+ *   ptr : TYPE:    typed as a a void pointer :
+ *         REALITY: really a string (char array)
+ *
+ *   size:   how many lines of data
+ *   nmemb:  how many bytes in the line
+ *
+ *   userdata: TYPE:    a void pointer (to anything you want)
+ *             REALITY: a pointer to a string
+ *
+ */
+size_t
+write_function(void *ptr, size_t size, size_t nmemb, void *userdata)
+{
+  // use buffer as reference so we can use nice . syntax below
+  string &buffer = *(string*)userdata;
+ 
+  // debug info
+  printf("in write function, size %d, nmemb %d, userdata %p\n",
+         (uint)size,
+         (uint)nmemb,
+         userdata);
+ 
+ 
+  // save current state
+  buffer.append((char*)ptr,size*nmemb);
+  
+  return size * nmemb;
+ 
+}
+
+/**
+ * This function simply converts strings to integers.
+ *
+ * Function: StringToInt
+ * Inputs: an integer to store the value in, the string to find the integer in
+ * Outputs: True if the string did contain an integer, false otherwise
+ */
+bool StringToInt(int& t, const string& s)
+{
+	istringstream iss(s);
+	return !(iss >> dec >> t).fail();
+}

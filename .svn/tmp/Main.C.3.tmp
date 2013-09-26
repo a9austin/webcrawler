@@ -1,0 +1,676 @@
+/* Authors:  Austin Truong, George Richards, Alan Mieu, Eric Saupe
+ * Date:     February 13, 2012
+ * 
+ * Main.C
+ * 
+ * Function:
+ * Main function for the web crawler.
+ */
+#ifndef _MAIN_
+#define _MAIN_
+
+#include <cctype>
+#include <signal.h>
+#include <pthread.h>
+#include <string>
+#include <string.h>
+#include <iterator>
+#include <iomanip>
+#include <iostream>
+#include <vector>
+#include <sstream>
+#include <fstream>
+#include <stdlib.h>
+#include <map>
+#include <curl/curl.h>
+#include "Users.h"
+#include "UserEntry.h"
+#include "Word_Count.h"
+#include "Output.h"
+
+#endif
+
+//function declarations
+bool StringToInt(int& t, const string& s);
+string StringToLowercase(string s);
+void parseHTML(string website, string buffer);
+void *getHTML(void *site);
+size_t write_function(void *ptr, size_t size, size_t nmemb, void *userdata);
+void sigproc(int i);
+bool goodLink(string link);
+void populateDisallow();
+Dictionary *DICT;
+int topCount;
+int missCount;
+
+vector<string> DISALLOWED_LINKS;
+vector<string> LINK_QUEUE;
+pthread_mutex_t MUTEXT_LINK_QUEUE;
+Output output;
+pthread_mutex_t MUTEXT_output;
+string BASE_DOMAIN;
+pthread_mutex_t MUTEXT_BASE_DOMAIN;
+map<string, string> VISITED_LINKS;
+pthread_mutex_t MUTEXT_VISITED_LINKS;
+bool IS_AMAZON;
+pthread_mutex_t MUTEXT_IS_AMAZON;
+Users *USER_LIST;
+pthread_mutex_t MUTEXT_USER_LIST;
+pthread_mutex_t MUTEXT_DICT;
+int MAX_THREADS = 1;
+int NUM_THREADS = 1;
+pthread_mutex_t MUTEX_NUM_THREADS;
+
+
+int main (int argc, const char * argv[]) {
+  pthread_mutex_init(&MUTEXT_LINK_QUEUE, NULL);
+  pthread_mutex_init(&MUTEXT_output, NULL);
+  pthread_mutex_init(&MUTEXT_BASE_DOMAIN, NULL);
+  pthread_mutex_init(&MUTEXT_VISITED_LINKS, NULL);
+  pthread_mutex_init(&MUTEXT_IS_AMAZON, NULL);
+  pthread_mutex_init(&MUTEXT_USER_LIST, NULL);
+  pthread_mutex_init(&MUTEXT_DICT, NULL);
+  pthread_mutex_init(&MUTEX_NUM_THREADS, NULL);
+        DICT = new Dictionary();
+	string website;
+	string domain;
+	pthread_mutex_lock(&MUTEXT_USER_LIST);
+	USER_LIST = new Users();
+	pthread_mutex_unlock(&MUTEXT_USER_LIST);
+	
+    //Example Usage:                
+    //./crawl cs.utah.edu 
+    //./crawl www.utah.edu -domain utah.edu
+    //./crawl www.utah.edu -domain utah.edu -threads 8
+    //./crawl www.utah.edu -domain utah.edu -threads 8 -count 500
+    //./crawl www.utah.edu -domain utah.edu -threads 8 -count 500 -miss 100
+	if (argc < 2) {
+		cout << "Usage: " << argv[0] << "web_address [-domain limited_domain] [-threads #_threads_used] [-count #_of_top_words] [-miss #_of_misspelled_words]" << endl;
+		exit(1);
+	}
+	//intercept ctrl-c
+	signal(SIGINT, sigproc);
+	
+	//Website to be checked is the first argument
+	string amazon = "amazon.com";
+	website = argv[1];
+	//Check if domain is an Amazon domain.
+	if(website.find(amazon) != string::npos) {
+		pthread_mutex_lock(&MUTEXT_IS_AMAZON);
+		IS_AMAZON = true;
+		pthread_mutex_unlock(&MUTEXT_IS_AMAZON);
+	}
+	pthread_mutex_lock(&MUTEXT_BASE_DOMAIN);
+	BASE_DOMAIN = website;
+	pthread_mutex_unlock(&MUTEXT_BASE_DOMAIN);
+	//For loop to check for the other arguments given, if any.
+	//Error checking could be added in case someone inputs a -input without
+	//another argument with it. 
+	//i.e. ./crawl cs.utah.edu -domain would throw an error because it doesn't
+	//have a domain.
+	bool hasThreads = false;
+	bool hasTopCount = false;
+	bool hasMissCount = false;
+	for(int i = 2; i < argc; i++) {
+		if(string(argv[i]).compare("-domain") == 0) {
+			
+			domain = argv[i+1];
+			
+			//Check if domain is an Amazon domain.
+			if(domain.find(amazon) != string::npos) {
+				pthread_mutex_lock(&MUTEXT_IS_AMAZON);
+				IS_AMAZON = true;
+				pthread_mutex_unlock(&MUTEXT_IS_AMAZON);
+			}
+			else {
+				pthread_mutex_lock(&MUTEXT_IS_AMAZON);
+				IS_AMAZON = false;
+				pthread_mutex_unlock(&MUTEXT_IS_AMAZON);
+			}
+			
+			i++;
+			continue;
+		}
+		else if (string(argv[i]).compare("-threads") == 0) {
+			hasThreads = true;
+			StringToInt(MAX_THREADS, string(argv[i+1]));
+			i++;
+			continue;
+		}
+		else if (string(argv[i]).compare("-count") == 0) {
+			hasTopCount = true;
+			StringToInt(topCount, string(argv[i+1]));
+			i++;
+			continue;
+		}
+		else if (string(argv[i]).compare("-miss") == 0) {
+			hasMissCount = true;
+			StringToInt(missCount, string(argv[i+1]));
+			i++;
+			continue;
+		}
+	}
+	
+	//Set default values if none are given.
+	if(!hasThreads) {
+		MAX_THREADS = 1;
+	} else {
+		if (MAX_THREADS > 8) {
+			MAX_THREADS = 8;
+		}
+	}
+	if(!hasTopCount) {
+	  topCount = 500;
+	  //topCount = 2;
+	}
+	if(!hasMissCount) {
+		missCount = 100;
+	}
+	
+	
+	//Go through the links.
+	if (MAX_THREADS > 1 && !(NUM_THREADS >= MAX_THREADS)) {
+		pthread_mutex_lock (&MUTEX_NUM_THREADS);
+		NUM_THREADS++;
+		pthread_mutex_unlock (&MUTEX_NUM_THREADS);
+		pthread_t thread;
+		int rc  = pthread_create(&thread, NULL, getHTML, (void *)&website);
+		if (rc) {  printf("ERROR; return code from pthread_create() is %d\n", rc);          exit(-1);     }
+		
+		void* status;
+		rc = pthread_join(thread, &status);  if (rc)  {         printf("ERROR; return code from pthread_join() is %d\n", rc);   exit(-1);     }
+	}
+	else {  
+		getHTML((void *)&website); 
+	}
+	
+	pthread_mutex_lock(&MUTEXT_output);
+	output.writeToHTML("outhtml.html", USER_LIST);
+	pthread_mutex_unlock(&MUTEXT_output);
+	delete DICT;
+	return 0;
+}
+
+/**
+ * Parses the information found in the buffer and passes it to a Webpage object.
+ */
+void parseHTML(string website, string buffer)
+{
+	pthread_mutex_lock(&MUTEXT_USER_LIST);
+	Webpage *newpage = new Webpage();
+	newpage->isAmazon = IS_AMAZON;
+	newpage->amountoflinks = 0;
+	pthread_mutex_unlock(&MUTEXT_USER_LIST);
+	
+	string domainname = website;
+	size_t findtitle = buffer.find("<title>", 0);
+	size_t findclosetitle = buffer.find("</title>", findtitle);
+	
+	
+	string title = findtitle!=string::npos?buffer.substr(findtitle, findclosetitle - findtitle):"noTitle";
+	
+	pthread_mutex_lock(&MUTEXT_VISITED_LINKS);
+	bool notvisited = VISITED_LINKS.find(title) == VISITED_LINKS.end();
+	pthread_mutex_unlock(&MUTEXT_VISITED_LINKS);
+	
+	if(notvisited){
+		pthread_mutex_lock(&MUTEXT_VISITED_LINKS);
+		VISITED_LINKS.insert(pair<string, string>(title, title));
+		pthread_mutex_unlock(&MUTEXT_VISITED_LINKS);
+	}else{
+		pthread_mutex_lock(&MUTEXT_LINK_QUEUE);
+		if (!LINK_QUEUE.empty()) {
+			string newURL = LINK_QUEUE.back();
+			LINK_QUEUE.pop_back();
+			pthread_mutex_unlock(&MUTEXT_LINK_QUEUE);
+			
+			//Go through the links.
+			if (MAX_THREADS > 1 && !(NUM_THREADS >= MAX_THREADS)) {
+				pthread_mutex_lock (&MUTEX_NUM_THREADS);
+				NUM_THREADS++;
+				pthread_mutex_unlock (&MUTEX_NUM_THREADS);
+				pthread_t thread;
+				int rc  = pthread_create(&thread, NULL, getHTML, (void *)&newURL);
+				if (rc) {  printf("ERROR; return code from pthread_create() is %d\n", rc);          exit(-1);     }
+				
+				void* status;
+				rc = pthread_join(thread, &status);  if (rc)  {         printf("ERROR; return code from pthread_join() is %d\n", rc);   exit(-1);     }
+			}
+			else {  
+				pthread_mutex_unlock(&MUTEXT_LINK_QUEUE);
+				getHTML((void *)&newURL); 
+			}
+		}
+		return;
+	}
+	size_t found = buffer.find("href", 0);
+	size_t foundimg = buffer.find("<img", 0);
+	size_t findtext = 0;
+	
+	
+	// Find links
+	while(found != string::npos)
+    {
+		size_t beginfound = buffer.find("\"", found);
+		size_t endfound = buffer.find("\"", beginfound + 1);
+		
+		if(beginfound != string::npos) 
+		{
+			if (beginfound < endfound)
+			{
+				string link = buffer.substr(beginfound + 1, endfound - (beginfound + 1));
+				newpage->links.push_back(link);
+				newpage->amountoflinks++;
+				bool goodlink = goodLink(link);
+				
+				size_t findslash = link.find("/", 0);
+				pthread_mutex_lock(&MUTEXT_BASE_DOMAIN);
+				size_t finddomain = link.find(BASE_DOMAIN, 0);
+				pthread_mutex_unlock(&MUTEXT_BASE_DOMAIN);
+				if (findslash == 0)
+				{
+					if (IS_AMAZON)
+					{
+					  for (unsigned int i = 0; i < DISALLOWED_LINKS.size(); i++){
+					    size_t finddisallowed = link.find(DISALLOWED_LINKS[i], 0);
+					    if (finddisallowed != string::npos){
+					      goodlink = false;
+					      break;
+					    }
+					  }
+					  if(goodlink){
+					    pthread_mutex_lock(&MUTEXT_BASE_DOMAIN);
+					    link = BASE_DOMAIN + link;
+					    pthread_mutex_unlock(&MUTEXT_BASE_DOMAIN);
+					    
+					    pthread_mutex_lock(&MUTEXT_VISITED_LINKS);
+					    VISITED_LINKS.insert( pair<string,string>(link,link) );
+					    pthread_mutex_unlock(&MUTEXT_VISITED_LINKS);
+					    
+					    pthread_mutex_lock(&MUTEXT_LINK_QUEUE);
+					    LINK_QUEUE.push_back(link);
+					    pthread_mutex_unlock(&MUTEXT_LINK_QUEUE);
+					  }			
+					}
+					else
+					{		
+						if(goodlink){    
+							pthread_mutex_lock(&MUTEXT_BASE_DOMAIN);  		      		      
+							link = BASE_DOMAIN + link;
+							pthread_mutex_unlock(&MUTEXT_BASE_DOMAIN);
+							
+							pthread_mutex_lock(&MUTEXT_VISITED_LINKS);
+							VISITED_LINKS.insert( pair<string,string>(link,link) );
+							pthread_mutex_unlock(&MUTEXT_VISITED_LINKS);
+							
+							pthread_mutex_lock(&MUTEXT_LINK_QUEUE);
+							LINK_QUEUE.push_back(link);		 
+							pthread_mutex_unlock(&MUTEXT_LINK_QUEUE);     		      
+						}		
+					}
+				}
+				else if (finddomain != string::npos)
+				{
+					if (IS_AMAZON)
+					{
+					  for (unsigned int i = 0; i < DISALLOWED_LINKS.size(); i++){
+					    size_t finddisallowed = link.find(DISALLOWED_LINKS[i], 0);
+					    if (finddisallowed != string::npos){
+					      goodlink = false;
+					      break;
+					    }
+					  }
+					  if(goodlink){
+					    pthread_mutex_lock(&MUTEXT_VISITED_LINKS);
+					    VISITED_LINKS.insert( pair<string,string>(link,link) );
+					    pthread_mutex_unlock(&MUTEXT_VISITED_LINKS);
+					    
+					    pthread_mutex_lock(&MUTEXT_LINK_QUEUE);
+					    LINK_QUEUE.push_back(link);
+					    pthread_mutex_unlock(&MUTEXT_LINK_QUEUE);
+					  }			
+					}
+					else
+					{		
+						if(goodlink){  
+							pthread_mutex_lock(&MUTEXT_VISITED_LINKS);    		      		      
+							VISITED_LINKS.insert( pair<string,string>(link,link) );
+							pthread_mutex_unlock(&MUTEXT_VISITED_LINKS);
+							
+							pthread_mutex_lock(&MUTEXT_LINK_QUEUE);
+							LINK_QUEUE.push_back(link);		
+							pthread_mutex_unlock(&MUTEXT_LINK_QUEUE);      		      
+						}		
+					}	
+				}
+				//Add link to queue if it meets the conditions of being within the same domain
+				//May also need to be built if within the same URL
+				
+			}
+			found = buffer.find("href", endfound);
+		}
+    }
+	cout << "Links found: " << newpage->links.size() << endl;
+	
+	newpage->amountofimages = 0;
+	// Find images
+	while(foundimg != string::npos)
+    {
+		newpage->amountofimages++;
+		foundimg = buffer.find("<img", foundimg + 5);
+    }
+	cout << "Pictures found: " << newpage->amountofimages << endl;
+	
+	// Find all words
+	vector<string> tmp;
+	newpage->amountofwords = 0;
+	istringstream tmpStream(buffer);
+	copy(istream_iterator<string>(tmpStream), istream_iterator<string>(),back_inserter<vector<string> >(tmp));
+	newpage->setSize(tmp.size());
+	while(findtext != string::npos)
+    {
+		size_t findclosebracket = buffer.find(">", findtext);
+		size_t findopenbracket = buffer.find("<", findclosebracket);
+		findtext = findopenbracket;
+		
+		if(findopenbracket != string::npos)
+		{
+			string words = buffer.substr(findclosebracket + 1, findopenbracket - (findclosebracket + 1));
+			vector<string> tokens;
+			istringstream iss(words);
+			copy(istream_iterator<string>(iss), istream_iterator<string>(),back_inserter<vector<string> >(tokens));
+			while(!tokens.empty())
+			{    
+				vector<string> multiplewords;
+				string word = tokens.back();
+				word = StringToLowercase(word);
+				newpage->amountofwords++;
+				for (unsigned int i = 0; i < word.length(); i++)
+				{
+					if (!isalpha(word[i]))
+					{
+						while(!isalpha(word[i]))
+						{
+							word.erase(i, 1);
+							if (i >= word.length())
+							{
+								
+								break;
+							}
+						}
+						multiplewords.push_back(word.substr(0, i));
+						word.erase(0, i);
+						i = 0;
+					}
+				} 
+				if (!word.empty())
+				{
+					multiplewords.push_back(word);
+					
+				}
+				while(!multiplewords.empty())
+				{
+					
+				  if(multiplewords.back() != ""){
+				    newpage->addword(multiplewords.back());
+				    newpage->word_vector.push_back(multiplewords.back());
+				  }
+					
+					multiplewords.pop_back();
+				}
+				tokens.pop_back();
+			}
+		}
+    }
+	
+	// If the page is an Amazon page, do some additional searching for users, their reviews and ratings.
+	if (IS_AMAZON)
+    {
+		size_t founduser = buffer.find("Read the full review by", 0);
+		
+		while(founduser != string::npos)
+		{
+			unsigned int endusername = buffer.find("\"", founduser);
+			
+			string username = buffer.substr(founduser + 24, endusername - (founduser + 24));
+			UserEntry *newuser = new UserEntry(username);
+			
+			
+			unsigned int foundrating = buffer.find("title=", endusername);
+			unsigned int endfoundrating = buffer.find(".", foundrating);
+			string rating = buffer.substr(foundrating + 7, endfoundrating - (foundrating + 7));
+			double numberrating = (double) atoi(rating.c_str());
+			newuser->addRating(numberrating);
+			
+			
+			unsigned int foundreview = buffer.find("<br />", endfoundrating);
+			unsigned int endfoundreview = buffer.find("<", foundreview + 6);
+			string userreview = buffer.substr(foundreview + 6, endfoundreview - (foundreview + 6));
+			newuser->ratings++;
+			newuser->userreviews.push_back(userreview);
+
+		
+			newpage->users.push_back(newuser); 
+		
+
+
+			founduser = buffer.find("Read the full review by", endfoundreview);
+		}
+    }
+	pthread_mutex_lock(&MUTEXT_USER_LIST);
+	pthread_mutex_lock(&MUTEXT_DICT);
+	if(IS_AMAZON){
+	  newpage->usersUpdateAndMisspelledWords(USER_LIST, DICT);
+	  }
+	else {
+	  newpage->normalSpellCheck(DICT);
+	}
+	pthread_mutex_lock(&MUTEXT_output);
+<<<<<<< .mine
+	output.update(newpage, IS_AMAZON);
+=======
+>>>>>>> .r146
+	pthread_mutex_unlock(&MUTEXT_output);
+	pthread_mutex_unlock(&MUTEXT_DICT);
+	pthread_mutex_unlock(&MUTEXT_USER_LIST);
+	pthread_mutex_lock(&MUTEXT_LINK_QUEUE);
+	if (!LINK_QUEUE.empty()) {
+		string newURL = LINK_QUEUE.back();
+		LINK_QUEUE.pop_back();
+		pthread_mutex_unlock(&MUTEXT_LINK_QUEUE);
+		//Go through the links.
+		if (MAX_THREADS > 1 && !(NUM_THREADS >= MAX_THREADS)) {
+			pthread_mutex_lock (&MUTEX_NUM_THREADS);
+			NUM_THREADS++;
+			pthread_mutex_unlock (&MUTEX_NUM_THREADS);
+			pthread_t thread;
+			int rc  = pthread_create(&thread, NULL, getHTML, (void *)&newURL);
+			if (rc) {  printf("ERROR; return code from pthread_create() is %d\n", rc);          exit(-1);     }
+			
+			void* status;
+			rc = pthread_join(thread, &status);  if (rc)  {         printf("ERROR; return code from pthread_join() is %d\n", rc);   exit(-1);     }
+		}
+		else {  
+			pthread_mutex_unlock(&MUTEXT_LINK_QUEUE);
+			getHTML((void *)&newURL); 
+		}
+	}
+	return;
+}
+
+/**
+ * Gets the HTML text from a website given in the argument. It then calls parseHTML to return 
+ * a parsed Webpage reference.
+ */
+void *getHTML(void *site)
+{
+	string &website = *(string*)site;
+	CURL *curl;
+	CURLcode res;
+	
+	string buffer;
+	
+	curl = curl_easy_init();
+	if(curl)
+    {
+		curl_easy_setopt(curl, CURLOPT_URL, website.c_str());
+		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_function);
+		curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
+		curl_easy_setopt(curl, CURLOPT_USERAGENT, "Acid Fire Bot" );
+		
+		res = curl_easy_perform(curl);
+		
+		if ( res )
+        {
+			printf("oops, res is %d\n", res);
+        }
+		
+		/* always cleanup */ 
+		curl_easy_cleanup(curl);
+    }
+	cout << "Parsing " << website << endl;
+	parseHTML(website, buffer );
+	return (void*)true;
+}
+
+
+/**
+ *
+ * This function is called by the networking (libcurl) code to download
+ * handle each part of the web page as it comes in.
+ *
+ * Note: networking usually results in "chunks" arriving which
+ *       must be assembled into the whole
+ *
+ * Parameters:
+ *
+ *   ptr : TYPE:    typed as a a void pointer :
+ *         REALITY: really a string (char array)
+ *
+ *   size:   how many lines of data
+ *   nmemb:  how many bytes in the line
+ *
+ *   userdata: TYPE:    a void pointer (to anything you want)
+ *             REALITY: a pointer to a string
+ *
+ */
+size_t
+write_function(void *ptr, size_t size, size_t nmemb, void *userdata)
+{
+	// use buffer as reference so we can use nice . syntax below
+	string &buffer = *(string*)userdata;
+	
+	// save current state
+	buffer.append((char*)ptr,size*nmemb);
+	
+	return size * nmemb;
+}
+
+/**
+ * This function simply converts strings to integers.
+ *
+ * Function: StringToInt
+ * Inputs: an integer to store the value in, the string to find the integer in
+ * Outputs: True if the string did contain an integer, false otherwise
+ */
+bool StringToInt(int& t, const string& s)
+{
+	istringstream iss(s);
+	return !(iss >> dec >> t).fail();
+}
+
+/**
+ * Simply converts a string to lowercase.
+ *
+ * Function: StringToLowercase
+ * Inputs: string to be converted
+ * Output: the converted string
+ */
+string StringToLowercase(string s) {
+	string str = s;
+	const int length = str.length();
+	for(int i=0; i < length; ++i) {
+		str[i] = tolower(str[i]);
+	}
+	return str;
+}
+
+/**
+ * This function just intercepts ctrl-c to output before quitting.
+ */
+void sigproc(int i)
+{ 
+	(void)i;
+	signal(SIGINT, sigproc);
+	cout << "ctrl-c detected" << endl;
+	cout << "cleaning up" << endl;
+	//add stuff to clean up and push output out
+	pthread_mutex_lock(&MUTEXT_output);
+	//output.calculateUserInfo(USER_LIST);
+	output.writeToHTML("outhtml.html", USER_LIST);
+	pthread_mutex_unlock(&MUTEXT_output);
+	cout << "Exiting Normally..." << endl;
+	//exit program
+	exit(0);
+}
+
+
+/**
+ * Checks if link is good.
+ */
+bool goodLink(string link)
+{
+	bool good = false;
+	
+	size_t findhtml = link.find(".html", 0);
+	size_t findhtm = link.find(".htm", 0);
+	size_t findslashend = link.find("/", link.size() - 1);
+	size_t findquestionmark = link.find("?", 0);
+	pthread_mutex_lock(&MUTEXT_VISITED_LINKS);
+	bool notvisited = VISITED_LINKS.find(link) == VISITED_LINKS.end();
+	pthread_mutex_unlock(&MUTEXT_VISITED_LINKS);
+	
+	
+	if(findhtml != string::npos || findhtm != string::npos || findslashend != string::npos || findquestionmark != string::npos){
+		if(notvisited){
+			good = true;
+			pthread_mutex_lock(&MUTEXT_VISITED_LINKS);
+			VISITED_LINKS.insert(pair<string, string>(link, link));
+			pthread_mutex_unlock(&MUTEXT_VISITED_LINKS);
+		}
+	}
+	
+	
+	return good;
+}
+
+/**
+ * Populates the disallowed links vector with the disallowed links found in robots.txt.
+ */
+void populateDisallow(){
+  ifstream disallowed ("robots.txt");
+  string line;
+  if (disallowed.is_open()){
+    while(disallowed.good()){
+      getline(disallowed,line);
+      size_t finddisallow = line.find("Disallowed:", 0);
+      size_t findgoogle = line.find("Googlebot", 0);
+      size_t findasterisk = line.find("*", 0);
+
+      if (findgoogle != string::npos){
+	break;      
+      }
+      if (findasterisk == string::npos){
+	if (finddisallow != string::npos){
+	  DISALLOWED_LINKS.push_back(line.substr(finddisallow + 10, line.size()-1));
+	}
+      }
+      else{
+	if (finddisallow != string::npos){
+	  DISALLOWED_LINKS.push_back(line.substr(finddisallow + 10, findasterisk));
+	} 
+      }
+    }
+    disallowed.close();
+  }
+}

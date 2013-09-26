@@ -1,0 +1,79 @@
+/*
+ *  Author: George Richards, Eric Saupe, Austin Truong, Alan Mieu
+ *  Team: Acid Fire
+ *  Date: 02/10/2012
+ *
+ *  Description:
+ *
+ *  This file is what a webpage contains.
+ */
+
+#include "Webpage.h"
+#include "Word_Count.h"
+
+
+using namespace std;
+
+void Webpage::insert(string item, vector<string> vec){
+  vec.push_back(item);
+}
+
+void Webpage::addword(string item){
+  count->add_word(item);
+  amountofwords++;
+}
+
+// For all the users in the webpage
+//// For all the users in the entire website
+////// If the user in the webpage == to the user in the website
+/////// add mispelled words , comments, user ect.
+void Webpage::usersUpdateAndMisspelledWords(Users *userlist, Dictionary *dict){
+  for(unsigned int i = 0; i < users.size(); i++) {
+    userSpellCheck(users[i], dict);
+    userlist->addUser(users[i]->name, users[i]);
+  }
+  
+}
+ 
+
+ void Webpage::userSpellCheck(UserEntry *user, Dictionary *dict){
+   //  vector
+  for(unsigned int i = 0; i < user->userreviews.size(); i++){
+    string current_word = user->userreviews.at(i);
+    if(!dict->spelled_correctly(current_word)){     // If word is misspelled.
+      // cout << "Misspelled Word: " << current_word << endl;
+      user->typos++;  
+      user->misspelledwords->push_back(current_word);
+    }
+  }
+}
+
+vector<string> Webpage::normalSpellCheck(Dictionary *dict){
+  vector<string> temp;
+  for(unsigned int i = 0; i < word_vector.size(); i++){
+    if(!dict->spelled_correctly(word_vector[i])){
+      temp.push_back(word_vector[i]);
+      amountofmisspell++;
+    }
+  }
+  return temp;
+}
+
+ void Webpage::addTransferVector(vector<string> v1, vector<string> v2){
+   for(unsigned int i = 0; i < v1.size(); i++){
+     v2.push_back(v1.at(i));
+   }
+ }
+
+
+void Webpage::addPointerTransferVector(vector<string> v1, vector<string> &v2){
+   for(unsigned int i = 0; i < v1.size(); i++){
+     v2.push_back(v1.at(i));
+   }
+ }
+
+ void Webpage::setSize(int size) {
+   count = new Word_Count(size);
+ }
+ 
+ 

@@ -1,0 +1,88 @@
+/*
+ Webpage.C
+ Team : Acid Fire
+ Author : Austin Truong, Alan Mieu, George Richards, Eric Saupe
+*/
+
+#include "Webpage.h"
+
+
+
+using namespace std;
+
+Webpage::Webpage(Users &userlist){
+  // update(userlist);
+}
+
+void Webpage::insert(string item, vector<string> vec){
+  vec.push_back(item);
+}
+
+void Webpage::insertUser(UserEntry user ){
+  users.push_back(user);
+}
+
+void Webpage::addword(string item){
+  count->add_word(item);
+}
+
+
+// For all the users in the webpage
+//// For all the users in the entire website
+////// If the user in the webpage == to the user in the website
+/////// add mispelled words , comments, user ect.
+void Webpage::updateAndMisspelledWords(Users &userlist, Dictionary &dict){
+  for(unsigned int i = 0; i < users.size(); i++){
+    for(unsigned int j = 0; j < userlist.usertable.size(); j++){
+      if(users[i].name == userlist.usertable[j]->name){
+	// spellCheck
+	vector<string> misspelled_temp = spellCheck(users[i], dict);
+	addTransferVector(misspelled_temp, userlist.usertable[j]->misspelledwords);
+      }else{
+       // Add to the website users
+      
+	userlist.addUser(users[i].name);
+	// Adds the misspelled words to the newely added user
+	updateUserInfo(users[i], userlist, dict); 
+      }
+    }
+  }
+}
+ 
+void Webpage::updateUserInfo(UserEntry user, Users &userlist, Dictionary &dict){
+   vector<string> misspelled_temp = spellCheck(user, dict);
+   UserEntry *added_user = userlist.usertable[userlist.usertable.size()];
+   addTransferVector(misspelled_temp, added_user->misspelledwords);
+   addTransferVector(user.userreviews, added_user->userreviews);
+   added_user->ratings = user.ratings;
+   added_user->totalratings = user.totalratings;
+   added_user->averagerating = user.averagerating;
+   added_user->reviews = user.reviews;
+   added_user->typos = user.typos;
+   added_user->reviews = user.reviews;
+ }
+
+vector<string> Webpage::spellCheck(UserEntry user, Dictionary &dict){
+  vector<string> misspelled;
+  
+  for(unsigned int i = 0; i < user.userreviews.size(); i++){
+    string current_word = user.userreviews[i];
+    if(!dict.spelled_correctly(current_word)){     // If word is misspelled.
+      misspelled.push_back(current_word);              // Push it to the misspelled vector to return.
+    }
+  } 
+  return misspelled;
+}
+
+ void Webpage::addTransferVector(vector<string> v1, vector<string> v2){
+   for(unsigned int i = 0; i < v1.size(); i++){
+    v2.push_back(v1[i]);
+   }
+ }
+
+
+ void Webpage::setSize(int size) {
+   count = new Word_Count(size);
+ }
+ 
+ 

@@ -1,0 +1,42 @@
+#----------------------------------------------------------------------------
+# Author: Austin Truong, Alan Mieu, George Richards, Eric Saupe
+# Date: 1/31/2012
+#----------------------------------------------------------------------------
+
+#
+# First declare aliases for use later on
+#
+CC              = g++
+CFLAGS          = -g -Wall -pedantic
+CPPFLAGS        = $(CFLAGS)
+LIBS            = -Icurl/include/ -Lcurl/lib -lcurl -lpthread # for use if you need math or other libs
+
+
+################################################################
+# ALL
+#
+# when you run make by itself, this is what it will try to create
+#
+all: crawler
+
+
+################################################################
+#
+# Dependencies
+#
+
+crawler: BinaryNode.o BST.o Dictionary.o WordEntry.o Word_Count.o UserEntry.o Users.o Webpage.o Output.o Main.C BinaryNode.h BST.h Dictionary.h WordEntry.h Word_Count.h UserEntry.h Users.h Webpage.h Output.h
+	$(CC)  $(CFLAGS) $(LIBS) -o $@ Main.C BinaryNode.o BST.o Dictionary.o WordEntry.o Word_Count.o UserEntry.o Users.o Webpage.o Output.o
+
+BinaryNode.o : BinaryNode.C BinaryNode.h
+BST.o : BST.C BST.h
+Dictionary.o : Dictionary.C Dictionary.h
+WordEntry.o : WordEntry.C WordEntry.h
+Word_Count.o : Word_Count.C Word_Count.h
+UserEntry.o : UserEntry.C UserEntry.h
+Users.o : Users.C Users.h
+Webpage.o : Webpage.C Webpage.h
+Output.o : Output.C Output.h
+
+clean:
+	rm -f *.o crawler # make sure there is a tab before rm

@@ -1,0 +1,120 @@
+/*
+ Webpage.h
+ Team : Acid Fire
+ Author : Austin Truong, Alan Mieu, George Richards, Eric Saupe
+*/
+#ifndef _WEBPAGE_
+#define _WEBPAGE_
+
+#include <iostream>
+#include <vector>
+#include <string>
+#include "Word_Count.h"
+#include "Users.h"
+#include "UserEntry.h"
+#include "Dictionary.h"
+
+
+using namespace std;
+ 
+class Webpage {
+ public:
+  int likes; // The amount of likes.
+ 
+  vector<string> links; // A vector containing all of the links of a page.
+  vector<string> misspelled_words; // A vector containing all of the mispelled words.
+  vector<string> customer_reviews; // Containing the customer reviews.
+  vector<string> word_vector; // Containing all words in a vector form.
+ 
+  int pagesvisited;
+  int amountoflinks;
+  int amountofmisspell;
+  int amountofwords;
+  int amountofimages;
+ 
+  bool isAmazon;
+  string title;
+  string url;
+  vector<UserEntry*> users;    // A vector containg all the users.
+  
+  Word_Count *count; // Keeps track of words in a webpage
+  
+  Webpage(){
+     count = new Word_Count(10000);
+     pagesvisited = 0;
+     amountoflinks = 0;
+     amountofmisspell = 0;
+     amountofwords = 0;
+     amountofimages = 0;
+     
+  };
+  
+  Webpage(int size){
+     count = new Word_Count(size*5);
+  };
+  
+  ~Webpage(){
+    delete count;
+  }
+  
+  /*
+    Inserts an item to whichever vector you want to insert it into.
+    Made specefically for links
+  */
+  void insert(string item, vector<string> vec);
+   
+  /*
+    Inserts a user entry into the user vector
+  */
+  void insertUser(UserEntry *user);
+
+  /*
+    add_word is used if any reoccurance happen.
+  */
+  void addword(string item);
+
+  /*
+    creates a word count obcomject
+  */
+  void setSize(int size);
+
+
+  
+  /*
+    Updates the userslist in the main. And spell checks.
+  */
+  void usersUpdateAndMisspelledWords(Users *userlist, Dictionary *dict);
+
+  /*
+    PARAMATERS : User, Dictionary
+    Spell checks through one users reviews
+  */
+  void userSpellCheck(UserEntry *users, Dictionary *dict);
+
+
+  /*
+    Returns : A vector of all the misspelled words.
+  */ 
+  vector<string> normalSpellCheck(Dictionary *dict);
+  
+  /*
+    Transfer elements from one vector to another
+   */
+  void addTransferVector(vector<string> vec1, vector<string> vec2);
+  
+    /*
+    Transfer elements from one vector to another
+   */
+  void addPointerTransferVector(vector<string> vec1, vector<string> &vec2);
+
+
+  /*
+    Updates a user information.
+   */
+  void updateUserInfo(Users *userlist, Dictionary *dict);
+
+
+ 
+};
+
+#endif
